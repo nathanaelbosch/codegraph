@@ -13833,3 +13833,182 @@ describe('C++ COM interface declarations (#1519)', () => {
     expect(Buffer.byteLength(expected)).toBe(Buffer.byteLength(source));
   });
 });
+
+describe('Julia Extraction', () => {
+  const byName = (nodes: { name: string }[], name: string) => nodes.filter((n) => n.name === name);
+
+  it('detects .jl files', () => {
+    expect(detectLanguage('src/DFTK.jl')).toBe('julia');
+    expect(isLanguageSupported('julia')).toBe(true);
+    expect(getSupportedLanguages()).toContain('julia');
+    expect(isSourceFile('src/terms/kinetic.jl')).toBe(true);
+  });
+
+  it('extracts modules, types, fields, and supertypes', () => {
+    const code = `
+module Shapes
+
+abstract type AbstractShape end
+abstract type Polygon{T} <: AbstractShape end
+
+"""
+    Point{T}
+
+A point.
+"""
+struct Point{T<:Real} <: AbstractShape
+    x::T
+    y::T
+end
+
+mutable struct Counter
+    n::Int
+    Counter() = new(0)
+end
+
+@kwdef struct Opts
+    tol::Float64 = 1e-8
+end
+
+primitive type MyByte 8 end
+
+@enum Color red green blue
+
+end
+`;
+    const { nodes, unresolvedReferences } = extractFromSource('src/Shapes.jl', code);
+    expect(byName(nodes, 'Shapes')[0]).toMatchObject({ kind: 'module', language: 'julia' });
+    expect(byName(nodes, 'AbstractShape')[0]).toMatchObject({ kind: 'interface', qualifiedName: 'Shapes::AbstractShape' });
+    const point = byName(nodes, 'Point')[0]!;
+    expect(point).toMatchObject({ kind: 'struct', qualifiedName: 'Shapes::Point' });
+    expect(point.docstring).toContain('A point.');
+    expect(nodes.filter((n) => n.kind === 'field').map((n) => n.qualifiedName)).toEqual(
+      expect.arrayContaining(['Shapes::Point::x', 'Shapes::Point::y', 'Shapes::Counter::n', 'Shapes::Opts::tol'])
+    );
+    // An inner constructor is a method of its struct.
+    expect(byName(nodes, 'Counter').map((n) => n.kind).sort()).toEqual(['method', 'struct']);
+    expect(byName(nodes, 'MyByte')[0]?.kind).toBe('struct');
+    expect(byName(nodes, 'Color')[0]?.kind).toBe('enum');
+    expect(nodes.filter((n) => n.kind === 'enum_member').map((n) => n.name)).toEqual(['red', 'green', 'blue']);
+    // A concrete type implements its abstract supertype; an abstract type extends one.
+    const point2 = point.id;
+    expect(unresolvedReferences).toContainEqual(expect.objectContaining({ fromNodeId: point2, referenceName: 'AbstractShape', referenceKind: 'implements' }));
+    const polygon = byName(nodes, 'Polygon')[0]!;
+    expect(unresolvedReferences).toContainEqual(expect.objectContaining({ fromNodeId: polygon.id, referenceName: 'AbstractShape', referenceKind: 'extends' }));
+  });
+
+  it('extracts every method form with its signature and docstring', () => {
+    const code = `
+"""
+    norm2(p)
+
+Squared norm.
+"""
+function norm2(p::Point{T})::T where {T}
+    return p.x^2 + p.y^2
+end
+
+area(p::Point) = norm2(p) * pi
+Base.show(io::IO, p::Point) = print(io, "Point")
+function Base.:+(a::Point, b::Point)
+    Point(a.x + b.x, a.y + b.y)
+end
+(c::Counter)(k) = c.n += k
+function generic end
+@inline fast(x) = x
+@doc "Documented." documented(x) = x
+square = x -> x^2
+macro twice(ex)
+    esc(ex)
+end
+`;
+    const { nodes } = extractFromSource('src/geom.jl', code);
+    const fn = (name: string) => byName(nodes, name).find((n) => n.kind === 'function');
+    expect(fn('norm2')).toMatchObject({ signature: 'norm2(p::Point{T})::T where {T}', returnType: 'T' });
+    expect(fn('norm2')?.docstring).toContain('Squared norm.');
+    expect(fn('area')?.signature).toBe('area(p::Point)');
+    // A method added to another module's function is named by the function.
+    expect(fn('show')?.signature).toBe('Base.show(io::IO, p::Point)');
+    expect(fn('+')?.signature).toBe('Base.:+(a::Point, b::Point)');
+    expect(fn('(::Counter)')).toBeDefined();
+    expect(fn('generic')).toBeDefined();
+    expect(fn('fast')).toBeDefined();
+    expect(fn('documented')?.docstring).toBe('Documented.');
+    expect(fn('square')).toBeDefined();
+    expect(fn('@twice')).toBeDefined();
+  });
+
+  it('records calls, broadcasts, pipes, constructors and macro calls from the enclosing method', () => {
+    const code = `
+function compute(xs)
+    s = helper(xs)
+    ys = transform.(xs)
+    z = xs |> summarize
+    LinearAlgebra.norm(xs)
+    p = Point{Float64}(1.0, 2.0)
+    @twice log_it(s)
+    run_each(xs) do x
+        inner_step(x)
+    end
+end
+`;
+    const { nodes, unresolvedReferences } = extractFromSource('src/compute.jl', code);
+    const compute = byName(nodes, 'compute')[0]!;
+    const calls = unresolvedReferences.filter((r) => r.referenceKind === 'calls' && r.fromNodeId === compute.id).map((r) => r.referenceName);
+    expect(calls).toEqual(expect.arrayContaining([
+      'helper', 'transform', 'summarize', 'LinearAlgebra.norm', 'Point', '@twice', 'log_it', 'run_each', 'inner_step',
+    ]));
+    // Locals are not symbols.
+    expect(byName(nodes, 's')).toEqual([]);
+  });
+
+  it('references the project types a method dispatches on, not Base types or type variables', () => {
+    const code = `
+norm2(p::Point{T}, scale::Float64, w::Weights{T}...) where {T<:Real} = 1
+function show_all(io::IO, items::Vector{Item})
+end
+`;
+    const { nodes, unresolvedReferences } = extractFromSource('src/refs.jl', code);
+    const refsFrom = (name: string) => unresolvedReferences
+      .filter((r) => r.referenceKind === 'references' && r.fromNodeId === byName(nodes, name)[0]!.id)
+      .map((r) => r.referenceName);
+    expect(refsFrom('norm2')).toEqual(['Point', 'Weights']);
+    expect(refsFrom('show_all')).toEqual(['Item']);
+  });
+
+  it('extracts using/import/include as imports and module-level globals', () => {
+    const code = `
+module Pkg
+using LinearAlgebra
+using Base: show, getindex
+import Statistics: mean
+import ..Parent
+include("helpers.jl")
+const DEFAULT_TOL = 1e-8
+const Vec = Vector{Float64}
+counter = 0
+export compute
+compute(x) = x
+end
+`;
+    const { nodes, unresolvedReferences } = extractFromSource('src/Pkg.jl', code);
+    const imports = nodes.filter((n) => n.kind === 'import').map((n) => n.name);
+    expect(imports).toEqual(['LinearAlgebra', 'Base', 'Statistics', '..Parent', 'helpers.jl']);
+    expect(byName(nodes, 'Base')[0]?.signature).toBe('using Base: show, getindex');
+    expect(unresolvedReferences).toContainEqual(expect.objectContaining({ referenceName: 'helpers.jl', referenceKind: 'imports' }));
+    expect(unresolvedReferences.some((r) => r.referenceName === 'include')).toBe(false);
+    expect(byName(nodes, 'DEFAULT_TOL')[0]?.kind).toBe('constant');
+    expect(byName(nodes, 'Vec')[0]?.kind).toBe('type_alias');
+    expect(byName(nodes, 'counter')[0]?.kind).toBe('variable');
+    expect(byName(nodes, 'compute')[0]?.isExported).toBe(true);
+  });
+
+  it('reads an include path built with joinpath(@__DIR__, …)', () => {
+    const code = `
+include(joinpath(@__DIR__, "terms", "kinetic.jl"))
+include(joinpath(dir, "dynamic.jl"))
+`;
+    const { nodes } = extractFromSource('src/Pkg.jl', code);
+    expect(nodes.filter((n) => n.kind === 'import').map((n) => n.name)).toEqual(['terms/kinetic.jl']);
+  });
+});

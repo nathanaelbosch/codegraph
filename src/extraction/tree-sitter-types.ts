@@ -61,6 +61,13 @@ export interface ExtractorContext {
    * what was walked here: the walk captured those candidates already.
    */
   walkInitializer(node: SyntaxNode): void;
+  /**
+   * Tell the dispatcher that the hook walked this subtree itself, through
+   * visitNode, with the right scope on the stack — so the function-as-value
+   * scan it runs over a handled node skips it rather than attributing what
+   * it finds to the scope around the node (which the hook has popped by then).
+   */
+  markWalked(node: SyntaxNode): void;
   /** Add an unresolved reference */
   addUnresolvedReference(ref: UnresolvedReference): void;
   /** Push a node ID onto the scope stack (for containment/qualified name building) */

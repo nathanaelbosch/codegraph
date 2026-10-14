@@ -12,6 +12,10 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### New Features
+
+- CodeGraph now indexes **Julia** (`.jl`): modules, functions and macros, structs and abstract types, docstrings, `using`/`import`, and the files a package `include`s. Calls follow Julia's multiple dispatch — a call links to the methods its arguments fit, a call on an abstract type links to every method that implements it, and a call to a `Base` function your package extends (like `copy` or `show`) is linked to your method only when the argument is one of your types.
+
 ### Fixes
 
 - In VB.NET, every member of a `Structure` is now indexed, including its fields, properties, methods, constructors and nested enums. Before, only the first member was, so the rest could not be found and their callers looked empty.

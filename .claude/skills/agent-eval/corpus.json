@@ -607,5 +607,28 @@
       "files": "~3390",
       "question": "How does programs.git.enable produce the final git config file in the user's home directory? Trace the flow from the git program module to the home-files machinery that links generated files into place."
     }
+  ],
+  "Julia": [
+    {
+      "name": "DataFrames.jl",
+      "repo": "https://github.com/JuliaData/DataFrames.jl",
+      "size": "Small",
+      "files": "~113",
+      "question": "When you call `combine(groupby(df, :g), :x => sum => :total)`, how is the result computed? Trace from `groupby` building the GroupedDataFrame through `combine` and its preparation steps to where `sum` is applied per group (including the fast path for standard reductions) and the output data frame is assembled."
+    },
+    {
+      "name": "DFTK.jl",
+      "repo": "https://github.com/JuliaMolSim/DFTK.jl",
+      "size": "Medium",
+      "files": "~434",
+      "question": "How does `self_consistent_field` compute the energies and the new density in each SCF iteration? Trace from `self_consistent_field` through the Hamiltonian construction to where each energy term's contribution is computed, and from diagonalization to how the new density is built from the eigenvectors and occupations."
+    },
+    {
+      "name": "julia",
+      "repo": "https://github.com/JuliaLang/julia",
+      "size": "Large",
+      "files": "~2067",
+      "question": "How does `Base.require` load a package? Trace from `require(into::Module, mod::Symbol)` through locating the package's entry file to either loading a precompiled cache file or including the package source."
+    }
   ]
 }

@@ -360,6 +360,17 @@ const PASCAL_SPEC: FnRefSpec = {
   unwrap: new Map<string, string | null>([['exprUnary', 'operand']]), // @Handler
 };
 
+const JULIA_SPEC: FnRefSpec = {
+  idTypes: new Set(['identifier']),
+  dispatch: new Map<string, CaptureRule>([
+    // `solver(fixpoint_map, x0)`, `map(transform, xs)`
+    ['argument_list', { mode: 'args' }],
+    // `cb = handler`, and a keyword argument `callback = handler`
+    ['assignment', { mode: 'rhs' }],
+    ['vector_expression', { mode: 'list' }],
+  ]),
+};
+
 /**
  * PHP core functions whose string arguments are CALLABLES — the positional
  * prior that makes a bare string trustworthy as a function reference.
@@ -417,6 +428,7 @@ export const FN_REF_SPECS: Record<string, FnRefSpec | undefined> = {
   lua: LUA_SPEC,
   luau: LUA_SPEC,
   pascal: PASCAL_SPEC,
+  julia: JULIA_SPEC,
 };
 
 // ---------------------------------------------------------------------------

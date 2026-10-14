@@ -25,6 +25,7 @@ import { isPythonSelfCall, matchJsStoreBindingCall, isUnresolvedJsMemberCall, ma
 import { isVisibleCppMacro, clearCppMacroVisibility } from './cpp-macro-visibility';
 import { isCppConstructorRef, matchCppConstructor } from './cpp-constructor';
 import { isCppSupertypeRef, matchCppSupertype, clearCppSupertypeMemos } from './cpp-supertypes';
+import { matchJuliaCall, clearJuliaDispatchMemos } from './julia-dispatch';
 import { gateSwiftTypeTarget, clearSwiftTypeVisibility, swiftExtendedConformances } from './swift-type-visibility';
 import { clearDartLibraryMemos } from './dart-libraries';
 import { clearVbnetReceiverMemos, isVbMemberRead, isVbPathCall, matchVbMemberRead, matchVbPathCall } from './vbnet-receivers';
@@ -575,6 +576,7 @@ export class ReferenceResolver {
       clearCppTypeAliasMemos(this.context);
       clearCppSupertypeMemos(this.context);
       clearCppIncluderMemos(this.context);
+      clearJuliaDispatchMemos(this.context);
     }
   }
 
@@ -1269,6 +1271,9 @@ export class ReferenceResolver {
     // which a framework's heuristics or name matching would take (see
     // ./cpp-supertypes).
     if (isCppSupertypeRef(ref)) return matchCppSupertype(ref, this.context);
+    // A Julia call reaches the methods of its name that its arguments can
+    // dispatch to, or nothing — never a namesake by name alone (./julia-dispatch).
+    if (ref.language === 'julia' && ref.referenceKind === 'calls') return matchJuliaCall(ref, this.context);
 
     // A Dart member read (`x.area`) links the getter the receiver's type
     // reaches, as a call, or nothing — never a guess by name (#2338).

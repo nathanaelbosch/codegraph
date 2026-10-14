@@ -1873,6 +1873,9 @@ export class TreeSitterExtractor {
         (ctx.walked ??= new Set()).add(node.id);
         self.visitFunctionBody(node, '');
       },
+      markWalked: (node) => {
+        (ctx.walked ??= new Set()).add(node.id);
+      },
       addUnresolvedReference: (ref) => self.unresolvedReferences.push(ref),
       pushScope: (nodeId) => self.nodeStack.push(nodeId),
       popScope: () => self.nodeStack.pop(),
